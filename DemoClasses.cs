@@ -20,7 +20,7 @@ namespace ReflectionSample
         public void Talk(string sentence)
         {
             // talk...
-            System.Console.WriteLine($"Alien talkin...: {sentence}");
+            System.Console.WriteLine($"Alien talking...: {sentence}");
         }
     }
 

@@ -1,109 +1,238 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Reflection;
+using Microsoft.Extensions.Configuration;
 
 namespace ReflectionSample
 {
-    class Program
+  class Program
+  {
+    private static string _typeFromConfiguration = "ReflectionSample.Person";
+    private static NetworkMonitorSettings _networkMonitorSettings = new NetworkMonitorSettings();
+
+    private static Type _warningServiceType;
+    private static MethodInfo _warningServiceMethod;
+    private static object _warningService;
+    private static List<object> _warningServiceParameterValues;
+
+    static void Main(string[] args)
     {
-        static void Main(string[] args)
-        {
-            var personType = typeof(Person);
-            var personConstructors = personType.GetConstructors(
-              BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic
-            );
+      BootstrapFromConfiguration();
 
-            foreach (var constructor in personConstructors)
-            {
-                System.Console.WriteLine(constructor);
-            }
+      Console.WriteLine("Monitoring network... something went wrong");
 
-            var privatePersonConstructor = personType.GetConstructor(
-              BindingFlags.Instance | BindingFlags.NonPublic,
-              null,
-              new Type[] { typeof(string), typeof(int) },
-              null
-            );
+      Warn();
 
-            System.Console.WriteLine(privatePersonConstructor);
-
-            var person1 = personConstructors[0].Invoke(null);
-
-            var person2 = personConstructors[1].Invoke(new object[] { "Kevin" });
-
-            var person3 = personConstructors[2].Invoke(new object[] { "Kevin", 39 });
-
-            var person4 = Activator.CreateInstance("ReflectionSample", "ReflectionSample.Person").Unwrap();
-
-            var person5 = Activator.CreateInstance("ReflectionSample",
-              "ReflectionSample.Person",
-              true,
-              BindingFlags.Instance | BindingFlags.Public,
-              null,
-              new object[] { "Kevin" },
-              null,
-              null);
-
-            var personTypeFromString = Type.GetType("ReflectionSample.Person");
-            var person6 = Activator.CreateInstance(personTypeFromString,
-              new object[] { "Kevin" });
-
-            var person7 = Activator.CreateInstance("ReflectionSample",
-              "ReflectionSample.Person",
-              true,
-              BindingFlags.Instance | BindingFlags.NonPublic,
-              null,
-              new object[] { "Kevin", 39 },
-              null,
-              null);
-
-            var assembly = Assembly.GetExecutingAssembly();
-            var person8 = assembly.CreateInstance("ReflectionSample.Person");
-
-            Console.ReadLine();
-        }
-
-        public void InspectingMetadata()
-        {
-            string name = "Kevin";
-            // var stringType = name.GetType();
-            var stringType = typeof(string);
-            System.Console.WriteLine(stringType);
-
-            var currentAssembly = Assembly.GetExecutingAssembly();
-            var typesFromCurrentAssembly = currentAssembly.GetTypes();
-            foreach (var type in typesFromCurrentAssembly)
-            {
-                System.Console.WriteLine(type.Name);
-            }
-
-            var oneTypeFromCurrentAssembly = currentAssembly.GetType("ReflectionSample.Person");
-            System.Console.WriteLine(oneTypeFromCurrentAssembly.Name);
-
-            var externalAssembly = Assembly.Load("System.Text.Json");
-            var typesFromExternalAssembly = externalAssembly.GetTypes();
-            var oneTypeFromExternalAssembly = externalAssembly.GetType("System.Text.Json.JsonProperty");
-
-            var modulesFromModuleFromExternalAssembly = externalAssembly.GetModules();
-            var oneModuleFromExternalAssembly = externalAssembly.GetModule("System.Text.Json.dll");
-
-            var typesFromModuleFromExternalLibrary = oneModuleFromExternalAssembly.GetTypes();
-            var oneTypeFromModuleFromExternalAssembly =
-                oneModuleFromExternalAssembly.GetType("System.Text.Json.JsonProperty");
-
-            // foreach(var constructor in oneTypeFromCurrentAssembly.GetConstructors())
-            // {
-            //     System.Console.WriteLine(constructor);
-            // }
-
-            foreach (var method in oneTypeFromCurrentAssembly.GetMethods(BindingFlags.Public | BindingFlags.NonPublic))
-            {
-                System.Console.WriteLine($"{method}, public: {method.IsPublic}");
-            }
-
-            foreach (var field in oneTypeFromCurrentAssembly.GetFields(BindingFlags.Instance | BindingFlags.NonPublic))
-            {
-                System.Console.WriteLine(field);
-            }
-        }
+      Console.ReadLine();
     }
+
+    private static void Warn()
+    {
+      // first, create an instance of the service if it wasn't cached yet
+      if (_warningService == null)
+        _warningService = Activator.CreateInstance(_warningServiceType);
+
+      // then, call the method on it, passing through the property bag
+      // create a list of parameters
+      var parameters = new List<object>();
+      foreach (var propertyBagItem in _networkMonitorSettings.PropertyBag)
+      {
+        parameters.Add(propertyBagItem.Value);
+      }
+
+      _warningServiceMethod.Invoke(_warningService, parameters.ToArray());
+    }
+
+    private static void BootstrapFromConfiguration()
+    {
+      var appSettingsConfig = new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json", true, true)
+        .Build();
+
+      appSettingsConfig.Bind("NetworkMonitorSettings", _networkMonitorSettings);
+
+      // inspect the assembly to check whether the correct types are contained within
+      _warningServiceType = Assembly.GetExecutingAssembly()
+        .GetType(_networkMonitorSettings.WarningService);
+      if (_warningServiceType == null)
+        throw new Exception("Configuration is invalid - warning service not found");
+
+      // inspect the service for the required method
+      _warningServiceMethod = _warningServiceType
+        .GetMethod(_networkMonitorSettings.MethodToExecute);
+      if (_warningServiceMethod == null)
+        throw new Exception("Configuration is invalid - method to execute on warning service not found");
+
+      // check if the parameters match
+      foreach (var parameter in _warningServiceMethod.GetParameters())
+      {
+        if (!_networkMonitorSettings.PropertyBag.TryGetValue(
+          parameter.Name, out object parameterValue))
+          throw new Exception($"Configuration is invalid - paramter {parameter.Name} not found.");
+
+        _warningServiceParameterValues = new List<object>();
+        try
+        {
+          var typedValue = Convert.ChangeType(
+            parameterValue, parameter.ParameterType);
+          _warningServiceParameterValues.Add(typedValue);
+        }
+        catch
+        {
+          throw new Exception($"Configuration is invalid - parameter {parameter.Name} cannot be converted to expected type {parameter.ParameterType}.");
+        }
+      }
+    }
+
+    public void InstantiatingAndManipulatingObjects()
+    {
+      var personType = typeof(Person);
+      var personConstructors = personType.GetConstructors(
+        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic
+      );
+
+      foreach (var constructor in personConstructors)
+      {
+        Console.WriteLine(constructor);
+      }
+
+      var privatePersonConstructor = personType.GetConstructor(
+        BindingFlags.Instance | BindingFlags.NonPublic,
+        null,
+        new Type[] { typeof(string), typeof(int) },
+        null
+      );
+
+      Console.WriteLine(privatePersonConstructor);
+
+      var person1 = personConstructors[0].Invoke(null);
+
+      var person2 = personConstructors[1].Invoke(new object[] { "Kevin" });
+
+      var person3 = personConstructors[2].Invoke(new object[] { "Kevin", 39 });
+
+      var person4 = Activator.CreateInstance("ReflectionSample", "ReflectionSample.Person").Unwrap();
+
+      var person5 = Activator.CreateInstance("ReflectionSample",
+        "ReflectionSample.Person",
+        true,
+        BindingFlags.Instance | BindingFlags.Public,
+        null,
+        new object[] { "Kevin" },
+        null,
+        null);
+
+      var personTypeFromString = Type.GetType("ReflectionSample.Person");
+      var person6 = Activator.CreateInstance(personTypeFromString,
+        new object[] { "Kevin" });
+
+      var person7 = Activator.CreateInstance("ReflectionSample",
+        "ReflectionSample.Person",
+        true,
+        BindingFlags.Instance | BindingFlags.NonPublic,
+        null,
+        new object[] { "Kevin", 39 },
+        null,
+        null);
+
+      var assembly = Assembly.GetExecutingAssembly();
+      var person8 = assembly.CreateInstance("ReflectionSample.Person");
+
+      // create a new instance of a configured type
+      var actualTypeFromConfiguration = Type.GetType(_typeFromConfiguration);
+      var iTalkInstance = Activator.CreateInstance(actualTypeFromConfiguration) as ITalk;
+      iTalkInstance.Talk("Hello world!");
+
+      dynamic dynamicITalkInstance = Activator.CreateInstance(actualTypeFromConfiguration);
+      dynamicITalkInstance.Talk("Hello world!");
+
+      var personForManipulation = Activator.CreateInstance("ReflectionSample",
+        "ReflectionSample.Person",
+        true,
+        BindingFlags.Instance | BindingFlags.NonPublic,
+        null,
+        new object[] { "Kevin", 39 },
+        null,
+        null).Unwrap();
+
+      var nameProperty = personForManipulation.GetType().GetProperty("Name");
+      nameProperty.SetValue(personForManipulation, "Sven");
+
+      Console.WriteLine(personForManipulation);
+
+      var ageField = personForManipulation.GetType().GetField("age");
+      ageField.SetValue(personForManipulation, 34);
+
+      var privateField = personForManipulation.GetType().GetField("_aPrivateField",
+        BindingFlags.Instance | BindingFlags.NonPublic);
+      privateField.SetValue(personForManipulation, "updated private field value");
+
+      personForManipulation.GetType().InvokeMember("Name",
+        BindingFlags.Instance | BindingFlags.Public | BindingFlags.SetProperty,
+        null,
+        personForManipulation,
+        new[] { "Emma" });
+
+      personForManipulation.GetType().InvokeMember("_aPrivateField",
+        BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.SetField,
+        null,
+        personForManipulation,
+        new[] { "second update for private field value" });
+
+      Console.WriteLine(personForManipulation);
+
+      var talkMethod = personForManipulation.GetType().GetMethod("Talk");
+      talkMethod.Invoke(personForManipulation, new[] { "something to say" });
+
+      personForManipulation.GetType().InvokeMember("Yell",
+        BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.InvokeMethod,
+        null,
+        personForManipulation,
+        new[] { "something to yell" });
+    }
+
+    public void InspectingMetadata()
+    {
+      string name = "Kevin";
+      // var stringType = name.GetType();
+      var stringType = typeof(string);
+      Console.WriteLine(stringType);
+
+      var currentAssembly = Assembly.GetExecutingAssembly();
+      var typesFromCurrentAssembly = currentAssembly.GetTypes();
+      foreach (var type in typesFromCurrentAssembly)
+      {
+        Console.WriteLine(type.Name);
+      }
+
+      var oneTypeFromCurrentAssembly = currentAssembly.GetType("ReflectionSample.Person");
+      Console.WriteLine(oneTypeFromCurrentAssembly.Name);
+
+      var externalAssembly = Assembly.Load("System.Text.Json");
+      var typesFromExternalAssembly = externalAssembly.GetTypes();
+      var oneTypeFromExternalAssembly = externalAssembly.GetType("System.Text.Json.JsonProperty");
+
+      var modulesFromModuleFromExternalAssembly = externalAssembly.GetModules();
+      var oneModuleFromExternalAssembly = externalAssembly.GetModule("System.Text.Json.dll");
+
+      var typesFromModuleFromExternalLibrary = oneModuleFromExternalAssembly.GetTypes();
+      var oneTypeFromModuleFromExternalAssembly =
+          oneModuleFromExternalAssembly.GetType("System.Text.Json.JsonProperty");
+
+      // foreach(var constructor in oneTypeFromCurrentAssembly.GetConstructors())
+      // {
+      //     System.Console.WriteLine(constructor);
+      // }
+
+      foreach (var method in oneTypeFromCurrentAssembly.GetMethods(BindingFlags.Public | BindingFlags.NonPublic))
+      {
+        Console.WriteLine($"{method}, public: {method.IsPublic}");
+      }
+
+      foreach (var field in oneTypeFromCurrentAssembly.GetFields(BindingFlags.Instance | BindingFlags.NonPublic))
+      {
+        Console.WriteLine(field);
+      }
+    }
+  }
 }
