@@ -17,13 +17,77 @@ namespace ReflectionSample
 
     static void Main(string[] args)
     {
+      var myList = new List<Person>();
+      Console.WriteLine(myList.GetType().Name);
+
+      Console.WriteLine(myList.GetType());
+
+      var myDictionary = new Dictionary<string, int>();
+      Console.WriteLine(myDictionary.GetType());
+
+      var dictionaryType = myDictionary.GetType();
+      foreach (var genericTypeArgument in dictionaryType.GenericTypeArguments)
+      {
+        Console.WriteLine(genericTypeArgument);
+      }
+      foreach (var genericArgument in dictionaryType.GetGenericArguments())
+      {
+        Console.WriteLine(genericArgument);
+      }
+
+      var openDictionaryType = typeof(Dictionary<,>);
+      foreach (var genericTypeArgument in openDictionaryType.GenericTypeArguments)
+      {
+        Console.WriteLine(genericTypeArgument);
+      }
+      foreach (var genericArgument in openDictionaryType.GetGenericArguments())
+      {
+        Console.WriteLine(genericArgument);
+      }
+
+      var createdInstance = Activator.CreateInstance(typeof(List<Person>));
+      Console.WriteLine(createdInstance.GetType());
+
+      // var createdResult = Activator.CreateInstance(typeof(Result<>));
+
+      // var openResultType = typeof(Result<>);
+      // var closedResultType = openResultType.MakeGenericType(typeof(Person));
+      // var createdResult = Activator.CreateInstance(closedResultType);
+
+      var openResultType = Type.GetType("ReflectionSample.Result`1");
+      var closedResultType = openResultType.MakeGenericType(
+        Type.GetType("ReflectionSample.Person"));
+      var createdResult = Activator.CreateInstance(closedResultType);
+
+      Console.WriteLine(createdResult.GetType());
+
+      var methodInfo = closedResultType.GetMethod("AlterAndReturnValue");
+      Console.WriteLine(methodInfo);
+
+      var genericMethodInfo = methodInfo.MakeGenericMethod(typeof(Employee));
+      genericMethodInfo.Invoke(createdResult, new object[] { new Employee() });
+
+      var iocContainer = new IocContainer();
+      iocContainer.Register<IWaterService, TapWaterService>();
+      var waterService = iocContainer.Resolve<IWaterService>();
+
+      // iocContainer.Register<IBeanService<Catimor>, ArabicaBeanService<Catimor>>();
+      // iocContainer.Register<IBeanService<>, ArabicaBeanService<>>(); // requires types
+      iocContainer.Register(typeof(IBeanService<>), typeof(ArabicaBeanService<>));
+
+      iocContainer.Register<ICoffeeService, CoffeeService>();
+      var coffeeService = iocContainer.Resolve<ICoffeeService>();
+
+      Console.ReadLine();
+    }
+
+    public void NetworkMonitorExample()
+    {
       BootstrapFromConfiguration();
 
       Console.WriteLine("Monitoring network... something went wrong");
 
       Warn();
-
-      Console.ReadLine();
     }
 
     private static void Warn()
